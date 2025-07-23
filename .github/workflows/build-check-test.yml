@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Install Dependencies
-      run: sudo apt update && sudo apt install -y libtinfo5
+    #- name: Install Dependencies
+    #  run: sudo apt update && sudo apt install -y libtinfo5
     - name: Install LLVM and Clang
       uses: KyleMayes/install-llvm-action@v2
       with:
