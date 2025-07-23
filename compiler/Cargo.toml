@@ -1,0 +1,15 @@
+[package]
+name = "minigc-compiler"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+im.workspace = true
+inkwell.workspace = true
+hashbrown.workspace = true
+itertools.workspace = true
+minigc-syntax-derive.workspace = true
+thiserror.workspace = true

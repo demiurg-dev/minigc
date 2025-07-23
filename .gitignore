@@ -1,0 +1,6 @@
+# Build output
+/target/
+
+# Editor swap/backup files
+*~
+*.swp

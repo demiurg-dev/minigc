@@ -1,0 +1,11 @@
+edition = "2024"
+max_width = 120
+chain_width = 60
+wrap_comments = true
+format_strings = true
+use_field_init_shorthand = true
+error_on_line_overflow = true
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+condense_wildcard_suffixes = true
+use_small_heuristics = "Max"
