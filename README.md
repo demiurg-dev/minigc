@@ -1,6 +1,6 @@
 # minigc
 
-** This is work in progress **
+**This is work in progress**
 
 Implementation of a very small language with automated memory management (GC), using LLVM and Rust.
 
