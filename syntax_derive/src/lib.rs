@@ -3,7 +3,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::parse::Nothing;
-use syn::{BinOp, Block, Error, Expr, ExprPath, FnArg, Ident, Item, ItemMod, Lit, Stmt, Type, parse_macro_input};
+use syn::{BinOp, Block, Error, Expr, ExprPath, FnArg, Ident, Item, ItemMod, Lit, Stmt, Type, UnOp, parse_macro_input};
 
 #[proc_macro_attribute]
 pub fn compile_expr_crate(attrs: TokenStream, item: TokenStream) -> TokenStream {
@@ -182,6 +182,7 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
         Expr::Binary(bin) => {
             let op = match &bin.op {
                 BinOp::Add(_) => quote! { #this::syntax::BinOp::Add },
+                BinOp::Le(_) => quote! { #this::syntax::BinOp::Leq },
                 _ => unimplemented!(),
             };
             let left = parse_expr(&bin.left, this);
@@ -192,16 +193,31 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
                 right: ::std::boxed::Box::new(#right)
             }}
         }
+        Expr::Unary(un) => {
+            let op = match &un.op {
+                UnOp::Neg(_) => quote! { #this::syntax::UnOp::Neg },
+                _ => unimplemented!(),
+            };
+            let expr = parse_expr(&un.expr, this);
+            quote! {
+                #this::syntax::Expr::UnOp {
+                    op: #op,
+                    expr: ::std::boxed::Box::new(#expr),
+                }
+            }
+        }
         Expr::If(ite) => {
             let cond = parse_expr(&ite.cond, this);
+            let cond = quote! { ::std::boxed::Box::new(#cond) };
             let then_branch = parse_block(&ite.then_branch, this);
+            let then_branch = quote! { ::std::boxed::Box::new(#then_branch) };
             let else_branch = ite
                 .else_branch
                 .as_ref()
                 .map(|(_, else_branch)| {
                     let else_branch = parse_expr(else_branch, this);
                     quote! {
-                        Some(::std::boxed::Box(#else_branch))
+                        Some(::std::boxed::Box::new(#else_branch))
                     }
                 })
                 .unwrap_or_else(|| quote! { None });
@@ -226,6 +242,7 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
                 }
             }
         }
+        Expr::Block(block) => parse_block(&block.block, this),
         _ => unimplemented!("Unsupported expression type: {expr:?}"),
     }
 }

@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
-use crate::syntax::{CheckError, Ctx, Fnc, Type};
+use crate::syntax::{CheckError, Ctx, Fnc, IntSize, Type};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
     Const(i64),
     Var(String),
     BinOp { op: BinOp, left: Box<Expr>, right: Box<Expr> },
+    UnOp { op: UnOp, expr: Box<Expr> },
     Ite { cond: Box<Expr>, then_branch: Box<Expr>, else_branch: Option<Box<Expr>> },
     Let { name: String, ty: Type, rhs: Box<Expr> },
     Call { name: String, args: Box<[Expr]> },
@@ -18,6 +19,12 @@ pub enum Expr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
     Add,
+    Leq,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnOp {
+    Neg,
 }
 
 macro_rules! expected_type {
@@ -54,6 +61,20 @@ impl Expr {
                     self.ensure_integer_type(ty)?;
                     left.check(ctx, fncs, ty)?;
                     right.check(ctx, fncs, ty)
+                }
+                BinOp::Leq => {
+                    if !matches!(ty, Type::Bool) {
+                        return expected_type!(ty, Type::Bool, self);
+                    }
+                    // TODO: We cannot check proper type here (need a bit of relaxation)
+                    left.check(ctx, fncs, &Type::Int { size: IntSize::I64, signed: true })?;
+                    right.check(ctx, fncs, &Type::Int { size: IntSize::I64, signed: true })
+                }
+            },
+            Self::UnOp { op, expr } => match op {
+                UnOp::Neg => {
+                    self.ensure_integer_type(ty)?;
+                    expr.check(ctx, fncs, ty)
                 }
             },
             Self::Ite { cond, then_branch, else_branch } => {

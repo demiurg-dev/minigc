@@ -1,14 +1,14 @@
-use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::{IntPredicate, OptimizationLevel};
 use itertools::Itertools;
 
 use crate::names::{Name, Names};
-use crate::syntax::{BinOp, Expr, FncType, IntSize, Top, Type};
+use crate::syntax::{BinOp, Expr, FncType, IntSize, Top, Type, UnOp};
 
 type NameCtx<'a> = im::HashMap<Name, BasicValueEnum<'a>>;
 
@@ -179,6 +179,37 @@ impl<'a, 'm> Generator<'a, 'm> {
                             .build_int_add(lhs, rhs, name.unwrap_or("add"))
                             .unwrap()
                             .into(),
+                    )
+                }
+                BinOp::Leq => {
+                    let lhs = self
+                        .generate_expr(left, Some("lhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    let rhs = self
+                        .generate_expr(right, Some("rhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        // TODO: We need type information to build correct predicate (signed/unsigned)
+                        self.builder
+                            .build_int_compare(IntPredicate::SLE, lhs, rhs, name.unwrap_or("leq"))
+                            .unwrap()
+                            .into(),
+                    )
+                }
+            },
+            Expr::UnOp { op, expr } => match op {
+                UnOp::Neg => {
+                    let expr = self
+                        .generate_expr(expr, name, ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        self.builder
+                            .build_int_neg(expr, name.unwrap_or("neg"))
+                            .unwrap()
+                            .as_basic_value_enum(),
                     )
                 }
             },

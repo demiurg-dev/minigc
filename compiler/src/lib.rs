@@ -43,4 +43,21 @@ mod tests {
         let main_fn = main_mod.get_fn3::<i64, i64, i64, i64>("main");
         assert_eq!(main_fn(5, 15, 22), 42);
     }
+
+    #[test]
+    fn abs() {
+        #[compile_expr_crate]
+        mod test {
+            fn abs(x: i64) -> i64 {
+                if x <= -1 { -x } else { x }
+            }
+        }
+        test.check().unwrap();
+        let ctx = CodegeGeneratorContext::default();
+        let main_mod = ctx.generate_module("main", test);
+        let abs_fn = main_mod.get_fn1::<i64, i64>("abs");
+        assert_eq!(abs_fn(42), 42);
+        assert_eq!(abs_fn(-42), 42);
+        assert_eq!(abs_fn(0), 0);
+    }
 }
