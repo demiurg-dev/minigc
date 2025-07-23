@@ -1,11 +1,10 @@
-use std::collections::HashMap;
-
 use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
+use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType};
-use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum};
 use itertools::Itertools;
 
 use crate::names::{Name, Names};
@@ -33,7 +32,7 @@ impl Default for CodegeGeneratorContext {
 pub struct ExecutionModule<'a> {
     name: &'a str,
     _module: Module<'a>,
-    main: extern "C" fn(i64, i64) -> i64,
+    ee: ExecutionEngine<'a>,
 }
 
 impl<'a> std::fmt::Debug for ExecutionModule<'a> {
@@ -60,14 +59,20 @@ impl<'a> ExecutionModule<'a> {
         let ee = module
             .create_jit_execution_engine(OptimizationLevel::None)
             .unwrap();
-        let main_fn: extern "C" fn(i64, i64) -> i64 =
-            unsafe { std::mem::transmute(ee.get_function_address("main").unwrap()) };
 
-        Self { name, _module: module, main: main_fn }
+        Self { name, _module: module, ee }
     }
 
-    pub fn call(&self, x: i64, y: i64) -> i64 {
-        (self.main)(x, y)
+    pub fn get_fn1<T, R>(&self, name: &str) -> extern "C" fn(T) -> R {
+        unsafe { std::mem::transmute(self.ee.get_function_address(name).unwrap()) }
+    }
+
+    pub fn get_fn2<T1, T2, R>(&self, name: &str) -> extern "C" fn(T1, T2) -> R {
+        unsafe { std::mem::transmute(self.ee.get_function_address(name).unwrap()) }
+    }
+
+    pub fn get_fn3<T1, T2, T3, R>(&self, name: &str) -> extern "C" fn(T1, T2, T3) -> R {
+        unsafe { std::mem::transmute(self.ee.get_function_address(name).unwrap()) }
     }
 }
 
@@ -75,14 +80,13 @@ struct Generator<'a, 'm> {
     context: &'a Context,
     module: &'m Module<'a>,
     builder: Builder<'a>,
-    fncs: HashMap<Name, FncDef<'a>>,
     names: Names,
     top: Top,
 }
 
 impl<'a, 'm> Generator<'a, 'm> {
     fn new(context: &'a Context, module: &'m Module<'a>, builder: Builder<'a>, top: Top) -> Self {
-        Self { context, module, builder, fncs: HashMap::new(), names: Names::default(), top }
+        Self { context, module, builder, names: Names::default(), top }
     }
 
     fn generate_top(&mut self) {
@@ -91,14 +95,10 @@ impl<'a, 'm> Generator<'a, 'm> {
     }
 
     fn generate_fnc_defs(&mut self) {
-        let mut fncs = HashMap::new();
         for (name, fnc) in &self.top.fncs {
             let fnc_ty = self.generate_fnc_type(&fnc.ty);
-            let fnc_value = self.module.add_function(name.as_str(), fnc_ty, None);
-            let name = self.names.get_str(name.as_str());
-            fncs.insert(name, FncDef { value: fnc_value, _ty: fnc_ty });
+            self.module.add_function(name.as_str(), fnc_ty, None);
         }
-        self.fncs = fncs;
     }
 
     fn generate_fnc_type(&self, ty: &FncType) -> FunctionType<'a> {
@@ -135,14 +135,15 @@ impl<'a, 'm> Generator<'a, 'm> {
     }
 
     fn generate_fncs(&mut self) {
-        for ((_, fnc_def), (_, fnc)) in self.fncs.iter().zip(&self.top.fncs) {
-            let entry = self.context.append_basic_block(fnc_def.value, "entry");
+        for (name, fnc) in &self.top.fncs {
+            let fnc_def = self.module.get_function(name).unwrap();
+            let entry = self.context.append_basic_block(fnc_def, "entry");
             self.builder.position_at_end(entry);
 
             let mut ctx: NameCtx = Default::default();
             for (i, param) in fnc.ty.params.iter().enumerate() {
                 let name = self.names.get_str(&param.name);
-                let param = fnc_def.value.get_nth_param(i as u32).unwrap();
+                let param = fnc_def.get_nth_param(i as u32).unwrap();
                 let _ = ctx.insert(name, param);
             }
 
@@ -179,6 +180,29 @@ impl<'a, 'm> Generator<'a, 'm> {
                 }
             },
             Expr::Let { .. } => todo!(),
+            Expr::Call { name: fname, args } => {
+                // TODO: Filter any potential unit type
+                let args = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        BasicMetadataValueEnum::from(
+                            self.generate_expr(arg, Some(format!("arg_{i}").as_str()), ctx)
+                                .unwrap(),
+                        )
+                    })
+                    .collect_vec();
+                let fnc = self.module.get_function(fname).unwrap();
+                let ty = fnc.get_type();
+                let retty = ty.get_return_type();
+                let maybe_name = format!("ret_{fname}");
+                let name = match retty {
+                    Some(_) => name.unwrap_or(&maybe_name),
+                    None => "",
+                };
+                let val = self.builder.build_call(fnc, &args, name).unwrap();
+                retty.map(|_| val.try_as_basic_value().unwrap_left())
+            }
             Expr::Ref(_expr) => todo!(),
             Expr::Block(exprs) => {
                 // TODO: We need type information here (to know whether something is unit)
@@ -197,9 +221,4 @@ impl<'a, 'm> Generator<'a, 'm> {
             Expr::Unit => todo!(),
         }
     }
-}
-
-struct FncDef<'a> {
-    value: FunctionValue<'a>,
-    _ty: FunctionType<'a>,
 }

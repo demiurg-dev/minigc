@@ -3,7 +3,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::parse::Nothing;
-use syn::{BinOp, Block, Error, Expr, FnArg, Item, ItemMod, Lit, Stmt, Type, parse_macro_input};
+use syn::{BinOp, Block, Error, Expr, ExprPath, FnArg, Ident, Item, ItemMod, Lit, Stmt, Type, parse_macro_input};
 
 #[proc_macro_attribute]
 pub fn compile_expr_crate(attrs: TokenStream, item: TokenStream) -> TokenStream {
@@ -184,9 +184,7 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
             _ => unimplemented!(),
         },
         Expr::Path(path) => {
-            let segments = path.path.segments.iter().collect_vec();
-            assert_eq!(segments.len(), 1);
-            let ident = segments[0].ident.to_string();
+            let ident = parse_path_to_ident(path).to_string();
             quote! { #this::syntax::Expr::Var(#ident.to_string()) }
         }
         Expr::Binary(bin) => {
@@ -203,8 +201,31 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
             }}
         }
         Expr::Block(block) => parse_block(&block.block, this),
+        Expr::Call(call) => {
+            let name = match &*call.func {
+                Expr::Path(path) => parse_path_to_ident(path).to_string(),
+                _ => unimplemented!("Only call by function name supported"),
+            };
+            let args = call
+                .args
+                .iter()
+                .map(|arg| parse_expr(arg, this))
+                .collect_vec();
+            quote! {
+                #this::syntax::Expr::Call {
+                    name: #name.to_string(),
+                    args: ::std::vec![#(#args),*].into_boxed_slice(),
+                }
+            }
+        }
         _ => unimplemented!("Unsupported expression type: {expr:?}"),
     }
+}
+
+fn parse_path_to_ident(path: &ExprPath) -> &Ident {
+    let segments = path.path.segments.iter().collect_vec();
+    assert_eq!(segments.len(), 1);
+    &segments[0].ident
 }
 
 fn parse_block(block: &Block, this: &TokenStream2) -> TokenStream2 {

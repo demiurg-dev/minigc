@@ -19,7 +19,7 @@ impl Top {
             for param in fnc.ty.params.iter() {
                 ctx.insert(&param.name, &param.ty);
             }
-            fnc.body.check(&ctx, &fnc.ty.ret)?;
+            fnc.body.check(&ctx, &self.fncs, &fnc.ty.ret)?;
         }
 
         Ok(())
@@ -36,6 +36,10 @@ pub enum CheckError {
     TypeMismatch { actual: Type, expected: Type, expr: Expr },
     #[error("standalone let expression")]
     StandaloneLet { expr: Expr },
-    #[error("unknown name: {0}")]
-    UnknownName(String),
+    #[error("unknown variable name: '{0}'")]
+    UnknownVariable(String),
+    #[error("unknown function name: '{0}'")]
+    UnknownFunction(String),
+    #[error("Invalid number of argument in call to '{name}', expected {expected}, found {found}")]
+    InvalidArgNum { name: String, expected: usize, found: usize },
 }
