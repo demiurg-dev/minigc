@@ -22,4 +22,19 @@ mod tests {
         let main_mod = ctx.generate_module("main", test);
         assert_eq!(main_mod.call(30, 8), 42);
     }
+
+    #[test]
+    fn fnc_call() {
+        #[compile_expr_crate]
+        mod test {
+            fn main(x: i64, y: i64, z: i64) -> i64 {
+                x + sum(y, x)
+            }
+
+            fn sum(x: i64, y: i64) -> i64 {
+                x + y
+            }
+        }
+        test.check().unwrap();
+    }
 }
