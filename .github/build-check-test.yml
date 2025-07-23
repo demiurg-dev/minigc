@@ -1,0 +1,33 @@
+name: BuildCheckTest
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Cache Cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/
+          target/
+        key: ${{ runner.os }}-cache-cargo-${{ hashFiles('Cargo.lock') }}
+    - name: Install nightly rustfmt
+      run: rustup toolchain install nightly --allow-downgrade -c rustfmt
+    - name: Build
+      run: cargo build --verbose
+    - name: Check (clippy)
+      run: make clippy
+    - name: Run tests
+      run: cargo test --verbose
