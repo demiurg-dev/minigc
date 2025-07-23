@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Int { size: IntSize, signed: bool },
+    Bool,
     Tuple(Box<[Type]>),
     Name(String),
     Ref(Box<Type>),

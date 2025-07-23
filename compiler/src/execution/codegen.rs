@@ -1,14 +1,14 @@
-use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum};
+use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::{IntPredicate, OptimizationLevel};
 use itertools::Itertools;
 
 use crate::names::{Name, Names};
-use crate::syntax::{BinOp, Expr, FncType, IntSize, Top, Type};
+use crate::syntax::{BinOp, Expr, FncType, IntSize, Top, Type, UnOp};
 
 type NameCtx<'a> = im::HashMap<Name, BasicValueEnum<'a>>;
 
@@ -80,13 +80,14 @@ struct Generator<'a, 'm> {
     context: &'a Context,
     module: &'m Module<'a>,
     builder: Builder<'a>,
+    current_fnc: Option<FunctionValue<'a>>,
     names: Names,
     top: Top,
 }
 
 impl<'a, 'm> Generator<'a, 'm> {
     fn new(context: &'a Context, module: &'m Module<'a>, builder: Builder<'a>, top: Top) -> Self {
-        Self { context, module, builder, names: Names::default(), top }
+        Self { context, module, builder, current_fnc: None, names: Names::default(), top }
     }
 
     fn generate_top(&mut self) {
@@ -147,10 +148,12 @@ impl<'a, 'm> Generator<'a, 'm> {
                 let _ = ctx.insert(name, param);
             }
 
+            self.current_fnc = Some(fnc_def);
             let ret = self.generate_expr(&fnc.body, Some("ret"), &ctx);
             self.builder
                 .build_return(ret.as_ref().map(|x| x as &dyn BasicValue<'_>))
                 .unwrap();
+            self.current_fnc = None;
         }
     }
 
@@ -178,7 +181,104 @@ impl<'a, 'm> Generator<'a, 'm> {
                             .into(),
                     )
                 }
+                BinOp::Sub => {
+                    let lhs = self
+                        .generate_expr(left, Some("lhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    let rhs = self
+                        .generate_expr(right, Some("rhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        self.builder
+                            .build_int_sub(lhs, rhs, name.unwrap_or("sub"))
+                            .unwrap()
+                            .into(),
+                    )
+                }
+                BinOp::Mul => {
+                    let lhs = self
+                        .generate_expr(left, Some("lhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    let rhs = self
+                        .generate_expr(right, Some("rhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        self.builder
+                            .build_int_mul(lhs, rhs, name.unwrap_or("mul"))
+                            .unwrap()
+                            .into(),
+                    )
+                }
+                BinOp::Leq => {
+                    let lhs = self
+                        .generate_expr(left, Some("lhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    let rhs = self
+                        .generate_expr(right, Some("rhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        // TODO: We need type information to build correct predicate (signed/unsigned)
+                        self.builder
+                            .build_int_compare(IntPredicate::SLE, lhs, rhs, name.unwrap_or("leq"))
+                            .unwrap()
+                            .into(),
+                    )
+                }
             },
+            Expr::UnOp { op, expr } => match op {
+                UnOp::Neg => {
+                    let expr = self
+                        .generate_expr(expr, name, ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        self.builder
+                            .build_int_neg(expr, name.unwrap_or("neg"))
+                            .unwrap()
+                            .as_basic_value_enum(),
+                    )
+                }
+            },
+            Expr::Ite { cond, then_branch, else_branch } => {
+                let cond = self
+                    .generate_expr(cond, Some("cond"), ctx)
+                    .unwrap()
+                    .into_int_value();
+                let curr_fnc = self.current_fnc.unwrap();
+
+                let then_block = self.context.append_basic_block(curr_fnc, "then");
+                let else_block = self.context.append_basic_block(curr_fnc, "else");
+                let end_block = self.context.append_basic_block(curr_fnc, "end");
+
+                self.builder
+                    .build_conditional_branch(cond, then_block, else_block)
+                    .unwrap();
+
+                self.builder.position_at_end(then_block);
+                let then_value = self.generate_expr(then_branch, Some("then"), ctx);
+                self.builder.build_unconditional_branch(end_block).unwrap();
+
+                self.builder.position_at_end(else_block);
+                let else_value = else_branch
+                    .as_ref()
+                    .and_then(|else_branch| self.generate_expr(else_branch, Some("ctx"), ctx));
+                self.builder.build_unconditional_branch(end_block).unwrap();
+
+                self.builder.position_at_end(end_block);
+                then_value.map(|then_value| {
+                    let ty = then_value.get_type();
+                    let else_value = else_value.unwrap();
+                    let phi = self.builder.build_phi(ty, name.unwrap_or("ite")).unwrap();
+                    phi.add_incoming(&[(&then_value, then_block), (&else_value, else_block)]);
+                    phi.as_basic_value()
+                })
+            }
             Expr::Let { .. } => todo!(),
             Expr::Call { name: fname, args } => {
                 // TODO: Filter any potential unit type
