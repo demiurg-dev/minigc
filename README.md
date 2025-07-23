@@ -1,3 +1,5 @@
+[![CI Status](https://github.com/demiurg-dev/minigc/actions/workflows/build-check-test.yml/badge.svg)](https://github.com/demiurg-dev/minigc/actions/workflows/build-check-test.yml)
+
 # minigc
 
 **This is work in progress**
