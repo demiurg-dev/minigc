@@ -19,6 +19,8 @@ pub enum Expr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
     Add,
+    Sub,
+    Mul,
     Leq,
 }
 
@@ -57,7 +59,7 @@ impl Expr {
                 }
             },
             Self::BinOp { op, left, right } => match op {
-                BinOp::Add => {
+                BinOp::Add | BinOp::Sub | BinOp::Mul => {
                     self.ensure_integer_type(ty)?;
                     left.check(ctx, fncs, ty)?;
                     right.check(ctx, fncs, ty)

@@ -181,6 +181,38 @@ impl<'a, 'm> Generator<'a, 'm> {
                             .into(),
                     )
                 }
+                BinOp::Sub => {
+                    let lhs = self
+                        .generate_expr(left, Some("lhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    let rhs = self
+                        .generate_expr(right, Some("rhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        self.builder
+                            .build_int_sub(lhs, rhs, name.unwrap_or("sub"))
+                            .unwrap()
+                            .into(),
+                    )
+                }
+                BinOp::Mul => {
+                    let lhs = self
+                        .generate_expr(left, Some("lhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    let rhs = self
+                        .generate_expr(right, Some("rhs"), ctx)
+                        .unwrap()
+                        .into_int_value();
+                    Some(
+                        self.builder
+                            .build_int_mul(lhs, rhs, name.unwrap_or("mul"))
+                            .unwrap()
+                            .into(),
+                    )
+                }
                 BinOp::Leq => {
                     let lhs = self
                         .generate_expr(left, Some("lhs"), ctx)

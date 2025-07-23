@@ -182,6 +182,8 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
         Expr::Binary(bin) => {
             let op = match &bin.op {
                 BinOp::Add(_) => quote! { #this::syntax::BinOp::Add },
+                BinOp::Sub(_) => quote! { #this::syntax::BinOp::Sub },
+                BinOp::Mul(_) => quote! { #this::syntax::BinOp::Mul },
                 BinOp::Le(_) => quote! { #this::syntax::BinOp::Leq },
                 _ => unimplemented!(),
             };
