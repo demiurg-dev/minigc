@@ -120,15 +120,6 @@ fn compile_expr_internal(attrs: TokenStream, item: TokenStream, this: TokenStrea
         }
     }
 
-    /*for item in top_mod.items {
-
-    }*/
-
-    // This is a placeholder implementation.
-    // In a real implementation, you would parse the `attr` and `item` tokens,
-    // perform some transformations, and return the modified item.
-
-    // For now, we just return the item unchanged.
     quote! {
         let #ident = {
             let mut #top_builder = #this::syntax::Top::default();
@@ -154,6 +145,7 @@ fn parse_type(ty: &Type, this: &TokenStream2) -> TokenStream2 {
                 "i32" => quote! { #this::syntax::Type::Int { size: #this::syntax::IntSize::I32, signed: true } },
                 "u64" => quote! { #this::syntax::Type::Int { size: #this::syntax::IntSize::I64, signed: false } },
                 "i64" => quote! { #this::syntax::Type::Int { size: #this::syntax::IntSize::I64, signed: true } },
+                "bool" => quote! { $this::syntax::Type::Bool },
                 _ => {
                     let name = item[0].ident.to_string();
                     quote! { #this::syntax::Type::Name(#name.to_string()) }
@@ -200,7 +192,23 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
                 right: ::std::boxed::Box::new(#right)
             }}
         }
-        Expr::Block(block) => parse_block(&block.block, this),
+        Expr::If(ite) => {
+            let cond = parse_expr(&ite.cond, this);
+            let then_branch = parse_block(&ite.then_branch, this);
+            let else_branch = ite
+                .else_branch
+                .as_ref()
+                .map(|(_, else_branch)| {
+                    let else_branch = parse_expr(else_branch, this);
+                    quote! {
+                        Some(::std::boxed::Box(#else_branch))
+                    }
+                })
+                .unwrap_or_else(|| quote! { None });
+            quote! {
+                #this::syntax::Expr::Ite { cond: #cond, then_branch: #then_branch, else_branch: #else_branch }
+            }
+        }
         Expr::Call(call) => {
             let name = match &*call.func {
                 Expr::Path(path) => parse_path_to_ident(path).to_string(),

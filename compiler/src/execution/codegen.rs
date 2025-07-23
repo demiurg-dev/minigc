@@ -179,6 +179,9 @@ impl<'a, 'm> Generator<'a, 'm> {
                     )
                 }
             },
+            Expr::Ite { cond, then_branch, else_branch } => {
+                todo!("{cond:?} {then_branch:?} {else_branch:?}")
+            }
             Expr::Let { .. } => todo!(),
             Expr::Call { name: fname, args } => {
                 // TODO: Filter any potential unit type

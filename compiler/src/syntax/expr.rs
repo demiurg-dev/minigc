@@ -7,6 +7,7 @@ pub enum Expr {
     Const(i64),
     Var(String),
     BinOp { op: BinOp, left: Box<Expr>, right: Box<Expr> },
+    Ite { cond: Box<Expr>, then_branch: Box<Expr>, else_branch: Option<Box<Expr>> },
     Let { name: String, ty: Type, rhs: Box<Expr> },
     Call { name: String, args: Box<[Expr]> },
     Ref(Box<Expr>),
@@ -55,6 +56,17 @@ impl Expr {
                     right.check(ctx, fncs, ty)
                 }
             },
+            Self::Ite { cond, then_branch, else_branch } => {
+                cond.check(ctx, fncs, &Type::Bool)?;
+                let ty = match else_branch {
+                    Some(else_branch) => {
+                        else_branch.check(ctx, fncs, ty)?;
+                        ty
+                    }
+                    None => &Type::Unit,
+                };
+                then_branch.check(ctx, fncs, ty)
+            }
             Self::Let { .. } => Err(CheckError::StandaloneLet { expr: self.clone() }),
             Self::Call { name, args } => {
                 let fnc = fncs
