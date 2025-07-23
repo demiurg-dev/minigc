@@ -5,7 +5,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType};
-use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
 use itertools::Itertools;
 
 use crate::names::{Name, Names};
@@ -179,6 +179,29 @@ impl<'a, 'm> Generator<'a, 'm> {
                 }
             },
             Expr::Let { .. } => todo!(),
+            Expr::Call { name: fname, args } => {
+                // TODO: Filter any potential unit type
+                let args = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        BasicMetadataValueEnum::from(
+                            self.generate_expr(arg, Some(format!("arg_{i}").as_str()), ctx)
+                                .unwrap(),
+                        )
+                    })
+                    .collect_vec();
+                let fnc = self.module.get_function(fname).unwrap();
+                let ty = fnc.get_type();
+                let retty = ty.get_return_type();
+                let maybe_name = format!("ret_{fname}");
+                let name = match retty {
+                    Some(_) => name.unwrap_or(&maybe_name),
+                    None => "",
+                };
+                let val = self.builder.build_call(fnc, &args, name).unwrap();
+                retty.map(|_| val.try_as_basic_value().unwrap_left())
+            }
             Expr::Ref(_expr) => todo!(),
             Expr::Block(exprs) => {
                 // TODO: We need type information here (to know whether something is unit)

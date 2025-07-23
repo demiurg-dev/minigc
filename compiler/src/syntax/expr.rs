@@ -1,4 +1,6 @@
-use crate::syntax::{CheckError, Ctx, Type};
+use std::collections::BTreeMap;
+
+use crate::syntax::{CheckError, Ctx, Fnc, Type};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -6,6 +8,7 @@ pub enum Expr {
     Var(String),
     BinOp { op: BinOp, left: Box<Expr>, right: Box<Expr> },
     Let { name: String, ty: Type, rhs: Box<Expr> },
+    Call { name: String, args: Box<[Expr]> },
     Ref(Box<Expr>),
     Block(Box<[Expr]>),
     Unit,
@@ -27,11 +30,16 @@ macro_rules! expected_type {
 }
 
 impl Expr {
-    pub(super) fn check<'a>(&'a self, ctx: &Ctx<'a>, ty: &Type) -> Result<(), CheckError> {
+    pub(super) fn check<'a>(
+        &'a self,
+        ctx: &Ctx<'a>,
+        fncs: &BTreeMap<String, Fnc>,
+        ty: &Type,
+    ) -> Result<(), CheckError> {
         match self {
             Self::Const(_) => self.ensure_integer_type(ty),
             Self::Var(name) => match ctx.get(name) {
-                None => Err(CheckError::UnknownName(name.to_string())),
+                None => Err(CheckError::UnknownVariable(name.to_string())),
                 Some(ty2) => {
                     if ty == *ty2 {
                         Ok(())
@@ -43,14 +51,33 @@ impl Expr {
             Self::BinOp { op, left, right } => match op {
                 BinOp::Add => {
                     self.ensure_integer_type(ty)?;
-                    left.check(ctx, ty)?;
-                    right.check(ctx, ty)
+                    left.check(ctx, fncs, ty)?;
+                    right.check(ctx, fncs, ty)
                 }
             },
             Self::Let { .. } => Err(CheckError::StandaloneLet { expr: self.clone() }),
+            Self::Call { name, args } => {
+                let fnc = fncs
+                    .get(name)
+                    .ok_or_else(|| CheckError::UnknownFunction(name.clone()))?;
+                if fnc.ty.params.len() != args.len() {
+                    return Err(CheckError::InvalidArgNum {
+                        name: name.clone(),
+                        expected: fnc.ty.params.len(),
+                        found: args.len(),
+                    });
+                }
+                if fnc.ty.ret != *ty {
+                    return expected_type!(ty, &fnc.ty.ret, self);
+                }
+                for (param, expr) in fnc.ty.params.iter().zip(args) {
+                    expr.check(ctx, fncs, &param.ty)?;
+                }
+                Ok(())
+            }
             Self::Ref(expr) => {
                 let ty = self.ensure_ref_type(ty)?;
-                expr.check(ctx, ty)
+                expr.check(ctx, fncs, ty)
             }
             Self::Block(stmts) => {
                 let mut ctx: Ctx<'a> = ctx.clone();
@@ -65,12 +92,12 @@ impl Expr {
                 for (i, stmt) in stmts.iter().enumerate() {
                     match stmt {
                         Expr::Let { name, ty, rhs } if i < last_id => {
-                            rhs.check(&ctx, ty)?;
+                            rhs.check(&ctx, fncs, ty)?;
                             ctx.insert(name, ty);
                         }
-                        _ if i < last_id => stmt.check(&ctx, &Type::Unit)?,
+                        _ if i < last_id => stmt.check(&ctx, fncs, &Type::Unit)?,
                         _ => {
-                            stmt.check(&ctx, ty)?;
+                            stmt.check(&ctx, fncs, ty)?;
                         }
                     }
                 }
