@@ -81,4 +81,32 @@ mod tests {
         assert_eq!(fact_fn(2), 2);
         assert_eq!(fact_fn(5), 120);
     }
+
+    #[test]
+    fn fact_acc() {
+        // TODO: This would ideally be u64 (when we have better support for it)
+        #[compile_expr_crate]
+        mod test {
+            fn fact_acc(x: i64, acc: i64) -> i64 {
+                if x <= 1 {
+                    acc
+                } else {
+                    fact_acc(x - 1, acc * x);
+                }
+            }
+
+            fn fact(x: i64) -> i64 {
+                fact_acc(x, 1);
+            }
+        }
+        test.check().unwrap();
+        let ctx = CodegeGeneratorContext::default();
+        let main_mod = ctx.generate_module("main", test).init_runtime();
+        let fact_fn = main_mod.get_fn1::<i64, i64>("fact");
+        assert_eq!(fact_fn(-42), 1);
+        assert_eq!(fact_fn(0), 1);
+        assert_eq!(fact_fn(1), 1);
+        assert_eq!(fact_fn(2), 2);
+        assert_eq!(fact_fn(5), 120);
+    }
 }
