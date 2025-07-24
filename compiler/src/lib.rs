@@ -1,5 +1,6 @@
 pub mod execution;
 mod names;
+pub mod runtime;
 pub mod syntax;
 
 pub use minigc_syntax_derive::compile_expr;
@@ -20,7 +21,7 @@ mod tests {
         }
         test.check().unwrap();
         let ctx = CodegeGeneratorContext::default();
-        let main_mod = ctx.generate_module("main", test);
+        let main_mod = ctx.generate_module("main", test).init_runtime();
         let main_fn = main_mod.get_fn2::<i64, i64, i64>("main");
         assert_eq!(main_fn(30, 8), 42);
     }
@@ -39,7 +40,7 @@ mod tests {
         }
         test.check().unwrap();
         let ctx = CodegeGeneratorContext::default();
-        let main_mod = ctx.generate_module("main", test);
+        let main_mod = ctx.generate_module("main", test).init_runtime();
         let main_fn = main_mod.get_fn3::<i64, i64, i64, i64>("main");
         assert_eq!(main_fn(5, 15, 22), 42);
     }
@@ -54,7 +55,7 @@ mod tests {
         }
         test.check().unwrap();
         let ctx = CodegeGeneratorContext::default();
-        let main_mod = ctx.generate_module("main", test);
+        let main_mod = ctx.generate_module("main", test).init_runtime();
         let abs_fn = main_mod.get_fn1::<i64, i64>("abs");
         assert_eq!(abs_fn(42), 42);
         assert_eq!(abs_fn(-42), 42);
@@ -72,7 +73,7 @@ mod tests {
         }
         test.check().unwrap();
         let ctx = CodegeGeneratorContext::default();
-        let main_mod = ctx.generate_module("main", test);
+        let main_mod = ctx.generate_module("main", test).init_runtime();
         let fact_fn = main_mod.get_fn1::<i64, i64>("fact");
         assert_eq!(fact_fn(-42), 1);
         assert_eq!(fact_fn(0), 1);

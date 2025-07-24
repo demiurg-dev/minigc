@@ -1,13 +1,13 @@
+use inkwell::IntPredicate;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
-use inkwell::{IntPredicate, OptimizationLevel};
 use itertools::Itertools;
 
 use crate::names::{Name, Names};
+use crate::runtime::Runtime;
 use crate::syntax::{BinOp, Expr, FncType, IntSize, Top, Type, UnOp};
 
 type NameCtx<'a> = im::HashMap<Name, BasicValueEnum<'a>>;
@@ -17,8 +17,8 @@ pub struct CodegeGeneratorContext {
 }
 
 impl CodegeGeneratorContext {
-    pub fn generate_module<'a>(&'a self, name: &'a str, program: Top) -> ExecutionModule<'a> {
-        ExecutionModule::new(&self.context, name, program)
+    pub fn generate_module<'a>(&'a self, name: &str, program: Top) -> GeneratedModule<'a> {
+        GeneratedModule::new(&self.context, name, program)
     }
 }
 
@@ -29,22 +29,20 @@ impl Default for CodegeGeneratorContext {
     }
 }
 
-pub struct ExecutionModule<'a> {
-    name: &'a str,
-    _module: Module<'a>,
-    ee: ExecutionEngine<'a>,
+pub struct GeneratedModule<'a> {
+    module: Module<'a>,
 }
 
-impl<'a> std::fmt::Debug for ExecutionModule<'a> {
+impl<'a> std::fmt::Debug for GeneratedModule<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecutionModule")
-            .field("name", &self.name)
+            .field("name", &self.module.get_name().to_str().unwrap())
             .finish()
     }
 }
 
-impl<'a> ExecutionModule<'a> {
-    fn new(context: &'a Context, name: &'a str, top: Top) -> Self {
+impl<'a> GeneratedModule<'a> {
+    fn new(context: &'a Context, name: &str, top: Top) -> Self {
         let module = context.create_module(name);
         let builder = context.create_builder();
 
@@ -56,23 +54,11 @@ impl<'a> ExecutionModule<'a> {
             panic!("Verify error: {err}");
         }
 
-        let ee = module
-            .create_jit_execution_engine(OptimizationLevel::None)
-            .unwrap();
-
-        Self { name, _module: module, ee }
+        Self { module }
     }
 
-    pub fn get_fn1<T, R>(&self, name: &str) -> extern "C" fn(T) -> R {
-        unsafe { std::mem::transmute(self.ee.get_function_address(name).unwrap()) }
-    }
-
-    pub fn get_fn2<T1, T2, R>(&self, name: &str) -> extern "C" fn(T1, T2) -> R {
-        unsafe { std::mem::transmute(self.ee.get_function_address(name).unwrap()) }
-    }
-
-    pub fn get_fn3<T1, T2, T3, R>(&self, name: &str) -> extern "C" fn(T1, T2, T3) -> R {
-        unsafe { std::mem::transmute(self.ee.get_function_address(name).unwrap()) }
+    pub fn init_runtime(self) -> Runtime<'a> {
+        Runtime::new(self.module)
     }
 }
 
