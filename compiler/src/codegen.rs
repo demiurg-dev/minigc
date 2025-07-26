@@ -77,6 +77,7 @@ impl<'a, 'm> Generator<'a, 'm> {
     }
 
     fn generate_top(&mut self) {
+        self.generate_structs();
         self.generate_fnc_defs();
         self.generate_fncs();
     }
@@ -117,6 +118,7 @@ impl<'a, 'm> Generator<'a, 'm> {
                 IntSize::I64 => self.context.i64_type(),
             }
             .into(),
+            Type::Name(name) => self.context.get_struct_type(name).unwrap().into(),
             _ => unimplemented!(),
         }
     }
@@ -141,6 +143,16 @@ impl<'a, 'm> Generator<'a, 'm> {
                 .build_return(ret.as_ref().map(|x| x as &dyn BasicValue<'_>))
                 .unwrap();
             self.current_fnc = None;
+        }
+    }
+
+    fn generate_structs(&self) {
+        for (name, sd) in &self.top.structs {
+            let fields = sd.fields.iter().map(|f| {
+                self.generate_value_type(&f.ty)
+            }).collect_vec();
+            let st = self.context.opaque_struct_type(name);
+            st.set_body(&fields, false);
         }
     }
 
