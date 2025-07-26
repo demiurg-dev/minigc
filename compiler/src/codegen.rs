@@ -313,7 +313,6 @@ impl<'a, 'm> Generator<'a, 'm> {
                 let val = self.builder.build_call(fnc, &args, name).unwrap();
                 retty.map(|_| val.try_as_basic_value().unwrap_left())
             }
-            Expr::Ref(_expr) => todo!(),
             Expr::Block(exprs) => {
                 let mut ctx = ctx.clone();
                 assert!(!exprs.is_empty(), "empty exprs not supported yet");

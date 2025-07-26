@@ -30,8 +30,6 @@ impl Top {
 pub enum CheckError {
     #[error("expected integer type, found {actual:?} in expression {expr:?}")]
     ExpectedIntegerType { actual: Type, expr: Expr },
-    #[error("expected ref type, found {actual:?} in expression {expr:?}")]
-    ExpectedRefType { actual: Type, expr: Expr },
     #[error("expected type {expected:?}, found {actual:?} in expression {expr:?}")]
     TypeMismatch { actual: Type, expected: Type, expr: Expr },
     #[error("standalone let expression")]
