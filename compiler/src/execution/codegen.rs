@@ -127,6 +127,7 @@ impl<'a, 'm> Generator<'a, 'm> {
             let entry = self.context.append_basic_block(fnc_def, "entry");
             self.builder.position_at_end(entry);
 
+            let mut names = Names::default();
             let mut ctx: NameCtx = Default::default();
             for (i, param) in fnc.ty.params.iter().enumerate() {
                 let name = self.names.get_str(&param.name);
@@ -135,7 +136,7 @@ impl<'a, 'm> Generator<'a, 'm> {
             }
 
             self.current_fnc = Some(fnc_def);
-            let ret = self.generate_expr(&fnc.body, Some("ret"), &ctx);
+            let ret = self.generate_expr(&fnc.body, Some("ret"), &ctx, &mut names);
             self.builder
                 .build_return(ret.as_ref().map(|x| x as &dyn BasicValue<'_>))
                 .unwrap();
@@ -143,7 +144,13 @@ impl<'a, 'm> Generator<'a, 'm> {
         }
     }
 
-    fn generate_expr(&self, expr: &Expr, name: Option<&str>, ctx: &NameCtx<'a>) -> Option<BasicValueEnum<'a>> {
+    fn generate_expr(
+        &self,
+        expr: &Expr,
+        name: Option<&str>,
+        ctx: &NameCtx<'a>,
+        names: &mut Names,
+    ) -> Option<BasicValueEnum<'a>> {
         match expr {
             Expr::Const(val) => {
                 // TODO: Need to have type information here
@@ -153,11 +160,11 @@ impl<'a, 'm> Generator<'a, 'm> {
             Expr::BinOp { op, left, right } => match op {
                 BinOp::Add => {
                     let lhs = self
-                        .generate_expr(left, Some("lhs"), ctx)
+                        .generate_expr(left, Some("lhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     let rhs = self
-                        .generate_expr(right, Some("rhs"), ctx)
+                        .generate_expr(right, Some("rhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     Some(
@@ -169,11 +176,11 @@ impl<'a, 'm> Generator<'a, 'm> {
                 }
                 BinOp::Sub => {
                     let lhs = self
-                        .generate_expr(left, Some("lhs"), ctx)
+                        .generate_expr(left, Some("lhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     let rhs = self
-                        .generate_expr(right, Some("rhs"), ctx)
+                        .generate_expr(right, Some("rhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     Some(
@@ -185,11 +192,11 @@ impl<'a, 'm> Generator<'a, 'm> {
                 }
                 BinOp::Mul => {
                     let lhs = self
-                        .generate_expr(left, Some("lhs"), ctx)
+                        .generate_expr(left, Some("lhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     let rhs = self
-                        .generate_expr(right, Some("rhs"), ctx)
+                        .generate_expr(right, Some("rhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     Some(
@@ -201,11 +208,11 @@ impl<'a, 'm> Generator<'a, 'm> {
                 }
                 BinOp::Leq => {
                     let lhs = self
-                        .generate_expr(left, Some("lhs"), ctx)
+                        .generate_expr(left, Some("lhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     let rhs = self
-                        .generate_expr(right, Some("rhs"), ctx)
+                        .generate_expr(right, Some("rhs"), ctx, names)
                         .unwrap()
                         .into_int_value();
                     Some(
@@ -220,7 +227,7 @@ impl<'a, 'm> Generator<'a, 'm> {
             Expr::UnOp { op, expr } => match op {
                 UnOp::Neg => {
                     let expr = self
-                        .generate_expr(expr, name, ctx)
+                        .generate_expr(expr, name, ctx, names)
                         .unwrap()
                         .into_int_value();
                     Some(
@@ -233,7 +240,7 @@ impl<'a, 'm> Generator<'a, 'm> {
             },
             Expr::Ite { cond, then_branch, else_branch } => {
                 let cond = self
-                    .generate_expr(cond, Some("cond"), ctx)
+                    .generate_expr(cond, Some("cond"), ctx, names)
                     .unwrap()
                     .into_int_value();
                 let curr_fnc = self.current_fnc.unwrap();
@@ -247,13 +254,13 @@ impl<'a, 'm> Generator<'a, 'm> {
                     .unwrap();
 
                 self.builder.position_at_end(then_block);
-                let then_value = self.generate_expr(then_branch, Some("then"), ctx);
+                let then_value = self.generate_expr(then_branch, Some("then"), ctx, names);
                 self.builder.build_unconditional_branch(end_block).unwrap();
 
                 self.builder.position_at_end(else_block);
                 let else_value = else_branch
                     .as_ref()
-                    .and_then(|else_branch| self.generate_expr(else_branch, Some("ctx"), ctx));
+                    .and_then(|else_branch| self.generate_expr(else_branch, Some("ctx"), ctx, names));
                 self.builder.build_unconditional_branch(end_block).unwrap();
 
                 self.builder.position_at_end(end_block);
@@ -265,7 +272,7 @@ impl<'a, 'm> Generator<'a, 'm> {
                     phi.as_basic_value()
                 })
             }
-            Expr::Let { .. } => todo!(),
+            Expr::Let { .. } => unreachable!("standalone let"),
             Expr::Call { name: fname, args } => {
                 // TODO: Filter any potential unit type
                 let args = args
@@ -273,7 +280,7 @@ impl<'a, 'm> Generator<'a, 'm> {
                     .enumerate()
                     .map(|(i, arg)| {
                         BasicMetadataValueEnum::from(
-                            self.generate_expr(arg, Some(format!("arg_{i}").as_str()), ctx)
+                            self.generate_expr(arg, Some(format!("arg_{i}").as_str()), ctx, names)
                                 .unwrap(),
                         )
                     })
@@ -291,15 +298,23 @@ impl<'a, 'm> Generator<'a, 'm> {
             }
             Expr::Ref(_expr) => todo!(),
             Expr::Block(exprs) => {
-                // TODO: We need type information here (to know whether something is unit)
-                // TODO: Handle let differently here
+                let mut ctx = ctx.clone();
                 assert!(!exprs.is_empty(), "empty exprs not supported yet");
                 let idx_last = exprs.len() - 1;
                 for (i, expr) in exprs.iter().enumerate() {
                     let name = if i == idx_last { name } else { None };
-                    let val = self.generate_expr(expr, name, ctx);
-                    if i == idx_last {
-                        return val;
+                    match expr {
+                        Expr::Let { name, rhs, .. } => {
+                            if let Some(val) = self.generate_expr(rhs, Some(name), &ctx, names) {
+                                ctx.insert(names.get_str(name), val);
+                            }
+                        }
+                        _ => {
+                            let val = self.generate_expr(expr, name, &ctx, names);
+                            if i == idx_last {
+                                return val;
+                            }
+                        }
                     }
                 }
                 unreachable!()

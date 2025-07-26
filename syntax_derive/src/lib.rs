@@ -3,9 +3,11 @@ use std::fmt::Display;
 use itertools::Itertools;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::parse::Nothing;
-use syn::{parse_macro_input, BinOp, Block, Error, Expr, ExprPath, FnArg, Ident, Item, ItemMod, Lit, Pat, Stmt, Type, UnOp};
+use syn::{
+    BinOp, Block, Error, Expr, ExprPath, FnArg, Ident, Item, ItemMod, Lit, Pat, Stmt, Type, UnOp, parse_macro_input,
+};
 
 #[proc_macro_attribute]
 pub fn compile_expr_crate(attrs: TokenStream, item: TokenStream) -> TokenStream {
@@ -171,7 +173,7 @@ fn parse_stmt(stmt: &Stmt, this: &TokenStream2) -> TokenStream2 {
         Stmt::Expr(expr, _semi) => parse_expr(expr, this),
         Stmt::Local(local) => {
             let (id, ty) = match &local.pat {
-                Pat::Ident(_) => return error(&local, "type annotation needed"),
+                Pat::Ident(_) => return error(local, "type annotation needed"),
                 Pat::Type(ty) => {
                     assert_parse!(ty.attrs.is_empty(), &ty, "attributes not supported");
                     let id = match &*ty.pat {
@@ -189,16 +191,20 @@ fn parse_stmt(stmt: &Stmt, this: &TokenStream2) -> TokenStream2 {
                 }
                 _ => return error(&local.pat, "unsupported let binding"),
             };
-            assert_parse!(local.attrs.is_empty(), &local.attrs.iter().next().unwrap(), "attributes not supported");
+            assert_parse!(local.attrs.is_empty(), &local.attrs.first().unwrap(), "attributes not supported");
             match &local.init {
                 Some(init) => {
-                    assert_parse!(init.diverge.is_none(), &init.diverge.as_ref().unwrap().1, "diverge expression not supported");
+                    assert_parse!(
+                        init.diverge.is_none(),
+                        &init.diverge.as_ref().unwrap().1,
+                        "diverge expression not supported"
+                    );
                     let expr = parse_expr(&init.expr, this);
                     quote! {
                         #this::syntax::Expr::Let { name: #id.to_string(), ty: #ty, rhs: ::std::boxed::Box::new(#expr) }
                     }
-                },
-                None => return error(&local, "initialization expression is required")
+                }
+                None => error(local, "initialization expression is required"),
             }
         }
         _ => Error::new_spanned(stmt, "unsupported statement type").into_compile_error(),
@@ -303,6 +309,10 @@ fn parse_block(block: &Block, this: &TokenStream2) -> TokenStream2 {
     }
 }
 
-fn error<T, E>(tokens: T, msg: E) -> TokenStream2 where T: ToTokens, E: Display {
+fn error<T, E>(tokens: T, msg: E) -> TokenStream2
+where
+    T: ToTokens,
+    E: Display,
+{
     Error::new_spanned(tokens, msg).into_compile_error()
 }
