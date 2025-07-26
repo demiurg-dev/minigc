@@ -4,6 +4,8 @@ use inkwell::module::Module;
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine};
 
+mod memory;
+
 pub struct Runtime<'a> {
     module: Module<'a>,
     engine: ExecutionEngine<'a>,
