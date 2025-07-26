@@ -8,7 +8,7 @@ pub struct Top {
     pub fncs: BTreeMap<String, Fnc>,
 }
 
-pub(super) type Ctx<'a> = im::HashMap<&'a String, &'a Type>;
+pub(super) type Ctx<'a> = im::HashMap<&'a String, (&'a Type, bool)>;
 
 impl Top {
     pub fn check(&self) -> Result<(), CheckError> {
@@ -17,7 +17,7 @@ impl Top {
 
             let mut ctx: Ctx = Default::default();
             for param in fnc.ty.params.iter() {
-                ctx.insert(&param.name, &param.ty);
+                ctx.insert(&param.name, (&param.ty, false));
             }
             fnc.body.check(&ctx, &self.fncs, &fnc.ty.ret)?;
         }
@@ -40,6 +40,8 @@ pub enum CheckError {
     UnknownVariable(String),
     #[error("unknown function name: '{0}'")]
     UnknownFunction(String),
-    #[error("Invalid number of argument in call to '{name}', expected {expected}, found {found}")]
+    #[error("invalid number of argument in call to '{name}', expected {expected}, found {found}")]
     InvalidArgNum { name: String, expected: usize, found: usize },
+    #[error("assignment to immutable variable '{0}'")]
+    AssignmentToImmutable(String),
 }

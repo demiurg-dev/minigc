@@ -38,3 +38,20 @@ fn let_variable_scoping() {
     let main_fn = main_mod.get_fn2::<i64, i64, i64>("main");
     assert_eq!(main_fn(17, 18), 42);
 }
+
+#[test]
+fn let_mut_simple() {
+    #[compile_expr]
+    mod test {
+        fn main(a: i64) -> i64 {
+            let mut x: i64 = a + 1;
+            x = x + 5;
+            x
+        }
+    }
+    test.check().unwrap();
+    let ctx = CodegeGeneratorContext::default();
+    let main_mod = ctx.generate_module("main", test).init_runtime();
+    let main_fn = main_mod.get_fn1::<i64, i64>("main");
+    assert_eq!(main_fn(36), 42);
+}

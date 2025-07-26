@@ -2,7 +2,7 @@ use inkwell::IntPredicate;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{BasicMetadataTypeEnum, FunctionType};
+use inkwell::types::{BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
 use itertools::Itertools;
 
@@ -10,7 +10,7 @@ use crate::names::{Name, Names};
 use crate::runtime::Runtime;
 use crate::syntax::{BinOp, Expr, FncType, IntSize, Top, Type, UnOp};
 
-type NameCtx<'a> = im::HashMap<Name, BasicValueEnum<'a>>;
+type NameCtx<'a> = im::HashMap<Name, (BasicValueEnum<'a>, Option<BasicTypeEnum<'a>>)>;
 
 pub struct CodegeGeneratorContext {
     context: Context,
@@ -93,21 +93,21 @@ impl<'a, 'm> Generator<'a, 'm> {
         let param_types = ty
             .params
             .iter()
-            .map(|param| self.generate_value_type(&param.ty))
+            .map(|param| self.generate_value_type(&param.ty).into())
             .collect_vec();
         match &ty.ret {
             Type::Unit => self.context.void_type().fn_type(&param_types, false),
             _ => {
                 let generic = self.generate_value_type(&ty.ret);
                 match generic {
-                    BasicMetadataTypeEnum::IntType(it) => it.fn_type(&param_types, false),
+                    BasicTypeEnum::IntType(it) => it.fn_type(&param_types, false),
                     _ => unimplemented!(),
                 }
             }
         }
     }
 
-    fn generate_value_type(&self, ty: &Type) -> BasicMetadataTypeEnum<'a> {
+    fn generate_value_type(&self, ty: &Type) -> BasicTypeEnum<'a> {
         match ty {
             Type::Unit => unreachable!("Value type cannot be unit/void in LLVM"),
             Type::Int { size, .. } => match size {
@@ -132,7 +132,7 @@ impl<'a, 'm> Generator<'a, 'm> {
             for (i, param) in fnc.ty.params.iter().enumerate() {
                 let name = self.names.get_str(&param.name);
                 let param = fnc_def.get_nth_param(i as u32).unwrap();
-                let _ = ctx.insert(name, param);
+                let _ = ctx.insert(name, (param, None));
             }
 
             self.current_fnc = Some(fnc_def);
@@ -156,7 +156,16 @@ impl<'a, 'm> Generator<'a, 'm> {
                 // TODO: Need to have type information here
                 Some(self.context.i64_type().const_int(*val as u64, false).into())
             }
-            Expr::Var(name) => Some(*ctx.get(name.as_str()).unwrap()),
+            Expr::Var(name) => {
+                let (val, mut_type) = *ctx.get(name.as_str()).unwrap();
+                Some(match mut_type {
+                    Some(ty) => self
+                        .builder
+                        .build_load(ty, val.into_pointer_value(), name)
+                        .unwrap(),
+                    None => val,
+                })
+            }
             Expr::BinOp { op, left, right } => match op {
                 BinOp::Add => {
                     let lhs = self
@@ -273,6 +282,14 @@ impl<'a, 'm> Generator<'a, 'm> {
                 })
             }
             Expr::Let { .. } => unreachable!("standalone let"),
+            Expr::Assign { name, expr } => {
+                if let Some(val) = self.generate_expr(expr, Some(name), ctx, names) {
+                    let name = names.get_str(name);
+                    let dst = ctx.get(&name).unwrap().0.into_pointer_value();
+                    self.builder.build_store(dst, val).unwrap();
+                }
+                None
+            }
             Expr::Call { name: fname, args } => {
                 // TODO: Filter any potential unit type
                 let args = args
@@ -304,9 +321,17 @@ impl<'a, 'm> Generator<'a, 'm> {
                 for (i, expr) in exprs.iter().enumerate() {
                     let name = if i == idx_last { name } else { None };
                     match expr {
-                        Expr::Let { name, rhs, .. } => {
+                        Expr::Let { name, rhs, is_mut, ty } => {
                             if let Some(val) = self.generate_expr(rhs, Some(name), &ctx, names) {
-                                ctx.insert(names.get_str(name), val);
+                                let entry = if *is_mut {
+                                    let ty = self.generate_value_type(ty);
+                                    let alloc = self.builder.build_alloca(ty, name).unwrap();
+                                    self.builder.build_store(alloc, val).unwrap();
+                                    (alloc.as_basic_value_enum(), Some(ty))
+                                } else {
+                                    (val, None)
+                                };
+                                ctx.insert(names.get_str(name), entry);
                             }
                         }
                         _ => {
