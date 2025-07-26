@@ -12,7 +12,7 @@ pub enum Expr {
     Let { name: String, ty: Type, is_mut: bool, rhs: Box<Expr> },
     Assign { name: String, expr: Box<Expr> },
     Call { name: String, args: Box<[Expr]> },
-    Ref(Box<Expr>),
+    While { cond: Box<Expr>, body: Box<Expr> },
     Block(Box<[Expr]>),
     Unit,
 }
@@ -126,9 +126,12 @@ impl Expr {
                 }
                 Ok(())
             }
-            Self::Ref(expr) => {
-                let ty = self.ensure_ref_type(ty)?;
-                expr.check(ctx, fncs, ty)
+            Self::While { cond, body } => {
+                if !matches!(ty, Type::Unit) {
+                    return expected_type!(ty, Type::Unit, self);
+                }
+                cond.check(ctx, fncs, &Type::Bool)?;
+                body.check(ctx, fncs, ty)
             }
             Self::Block(stmts) => {
                 let mut ctx: Ctx<'a> = ctx.clone();
@@ -166,13 +169,6 @@ impl Expr {
         match ty {
             Type::Int { .. } => Ok(()),
             _ => Err(CheckError::ExpectedIntegerType { actual: ty.clone(), expr: self.clone() }),
-        }
-    }
-
-    fn ensure_ref_type<'a>(&self, ty: &'a Type) -> Result<&'a Type, CheckError> {
-        match ty {
-            Type::Ref(ty) => Ok(ty),
-            _ => Err(CheckError::ExpectedRefType { actual: ty.clone(), expr: self.clone() }),
         }
     }
 }

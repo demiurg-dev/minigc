@@ -277,6 +277,18 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
                 #this::syntax::Expr::Ite { cond: #cond, then_branch: #then_branch, else_branch: #else_branch }
             }
         }
+        Expr::While(whl) => {
+            assert_parse!(whl.attrs.is_empty(), whl.attrs.first(), "attributes not supported");
+            assert_parse!(whl.label.is_none(), whl.label.as_ref().unwrap(), "label not supported");
+            let cond = parse_expr(&whl.cond, this);
+            let body = parse_block(&whl.body, this);
+            quote! {
+                #this::syntax::Expr::While {
+                    cond: ::std::boxed::Box::new(#cond),
+                    body: ::std::boxed::Box::new(#body),
+                }
+            }
+        }
         Expr::Call(call) => {
             let name = match &*call.func {
                 Expr::Path(path) => parse_path_to_ident(path).to_string(),

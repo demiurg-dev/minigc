@@ -281,6 +281,31 @@ impl<'a, 'm> Generator<'a, 'm> {
                     phi.as_basic_value()
                 })
             }
+            Expr::While { cond, body } => {
+                let curr_fnc = self.current_fnc.unwrap();
+
+                let cond_block = self.context.append_basic_block(curr_fnc, "while_cond");
+                let body_block = self.context.append_basic_block(curr_fnc, "while_body");
+                let end_block = self.context.append_basic_block(curr_fnc, "while_end");
+
+                self.builder.build_unconditional_branch(cond_block).unwrap();
+
+                self.builder.position_at_end(cond_block);
+                let cond = self
+                    .generate_expr(cond, Some("cond"), ctx, names)
+                    .unwrap()
+                    .into_int_value();
+                self.builder
+                    .build_conditional_branch(cond, body_block, end_block)
+                    .unwrap();
+
+                self.builder.position_at_end(body_block);
+                assert!(self.generate_expr(body, None, ctx, names).is_none());
+                self.builder.build_unconditional_branch(cond_block).unwrap();
+
+                self.builder.position_at_end(end_block);
+                None
+            }
             Expr::Let { .. } => unreachable!("standalone let"),
             Expr::Assign { name, expr } => {
                 if let Some(val) = self.generate_expr(expr, Some(name), ctx, names) {
@@ -313,7 +338,6 @@ impl<'a, 'm> Generator<'a, 'm> {
                 let val = self.builder.build_call(fnc, &args, name).unwrap();
                 retty.map(|_| val.try_as_basic_value().unwrap_left())
             }
-            Expr::Ref(_expr) => todo!(),
             Expr::Block(exprs) => {
                 let mut ctx = ctx.clone();
                 assert!(!exprs.is_empty(), "empty exprs not supported yet");
