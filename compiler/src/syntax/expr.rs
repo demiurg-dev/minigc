@@ -9,7 +9,8 @@ pub enum Expr {
     BinOp { op: BinOp, left: Box<Expr>, right: Box<Expr> },
     UnOp { op: UnOp, expr: Box<Expr> },
     Ite { cond: Box<Expr>, then_branch: Box<Expr>, else_branch: Option<Box<Expr>> },
-    Let { name: String, ty: Type, rhs: Box<Expr> },
+    Let { name: String, ty: Type, is_mut: bool, rhs: Box<Expr> },
+    Assign { name: String, expr: Box<Expr> },
     Call { name: String, args: Box<[Expr]> },
     Ref(Box<Expr>),
     Block(Box<[Expr]>),
@@ -50,7 +51,7 @@ impl Expr {
             Self::Const(_) => self.ensure_integer_type(ty),
             Self::Var(name) => match ctx.get(name) {
                 None => Err(CheckError::UnknownVariable(name.to_string())),
-                Some(ty2) => {
+                Some((ty2, ..)) => {
                     if ty == *ty2 {
                         Ok(())
                     } else {
@@ -91,6 +92,21 @@ impl Expr {
                 then_branch.check(ctx, fncs, ty)
             }
             Self::Let { .. } => Err(CheckError::StandaloneLet { expr: self.clone() }),
+            Self::Assign { name, expr } => {
+                if !matches!(ty, Type::Unit) {
+                    return expected_type!(Type::Unit, ty, self);
+                }
+                match ctx.get(name) {
+                    Some((ty, is_mut)) => {
+                        if *is_mut {
+                            expr.check(ctx, fncs, ty)
+                        } else {
+                            Err(CheckError::AssignmentToImmutable(name.to_string()))
+                        }
+                    }
+                    None => Err(CheckError::UnknownVariable(name.to_string())),
+                }
+            }
             Self::Call { name, args } => {
                 let fnc = fncs
                     .get(name)
@@ -126,9 +142,9 @@ impl Expr {
                 let last_id = stmts.len() - 1;
                 for (i, stmt) in stmts.iter().enumerate() {
                     match stmt {
-                        Expr::Let { name, ty, rhs } if i < last_id => {
+                        Expr::Let { name, ty, is_mut, rhs } if i < last_id => {
                             rhs.check(&ctx, fncs, ty)?;
-                            ctx.insert(name, ty);
+                            ctx.insert(name, (ty, *is_mut));
                         }
                         _ if i < last_id => stmt.check(&ctx, fncs, &Type::Unit)?,
                         _ => {

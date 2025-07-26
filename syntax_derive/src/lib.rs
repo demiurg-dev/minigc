@@ -172,22 +172,22 @@ fn parse_stmt(stmt: &Stmt, this: &TokenStream2) -> TokenStream2 {
     match stmt {
         Stmt::Expr(expr, _semi) => parse_expr(expr, this),
         Stmt::Local(local) => {
-            let (id, ty) = match &local.pat {
+            let (id, is_mut, ty) = match &local.pat {
                 Pat::Ident(_) => return error(local, "type annotation needed"),
                 Pat::Type(ty) => {
                     assert_parse!(ty.attrs.is_empty(), &ty, "attributes not supported");
-                    let id = match &*ty.pat {
+                    let (id, is_mut) = match &*ty.pat {
                         Pat::Ident(ident) => {
                             assert_parse!(ident.attrs.is_empty(), &ident, "attributes not supported");
                             assert_parse!(ident.by_ref.is_none(), ident, "ref not supported");
                             assert_parse!(ident.subpat.is_none(), ident, "sub-pattern not supported");
-                            // TODO: Mutability
-                            ident.ident.to_string()
+                            let is_mut = ident.mutability.is_some();
+                            (ident.ident.to_string(), is_mut)
                         }
                         _ => return error(&local.pat, "unsupported let binding"),
                     };
                     let ty = parse_type(&ty.ty, this);
-                    (id, ty)
+                    (id, is_mut, ty)
                 }
                 _ => return error(&local.pat, "unsupported let binding"),
             };
@@ -201,7 +201,12 @@ fn parse_stmt(stmt: &Stmt, this: &TokenStream2) -> TokenStream2 {
                     );
                     let expr = parse_expr(&init.expr, this);
                     quote! {
-                        #this::syntax::Expr::Let { name: #id.to_string(), ty: #ty, rhs: ::std::boxed::Box::new(#expr) }
+                        #this::syntax::Expr::Let {
+                            name: #id.to_string(),
+                            ty: #ty,
+                            is_mut: #is_mut,
+                            rhs: ::std::boxed::Box::new(#expr)
+                        }
                     }
                 }
                 None => error(local, "initialization expression is required"),
@@ -287,6 +292,17 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
                     name: #name.to_string(),
                     args: ::std::vec![#(#args),*].into_boxed_slice(),
                 }
+            }
+        }
+        Expr::Assign(assign) => {
+            assert_parse!(assign.attrs.is_empty(), assign.attrs.first(), "attributes not supported");
+            let name = match &*assign.left {
+                Expr::Path(path) => parse_path_to_ident(path).to_string(),
+                _ => return error(&assign.left, "expected identifier"),
+            };
+            let expr = parse_expr(&assign.right, this);
+            quote! {
+                #this::syntax::Expr::Assign { name: #name.to_string(), expr: ::std::boxed::Box::new(#expr) }
             }
         }
         Expr::Block(block) => parse_block(&block.block, this),
