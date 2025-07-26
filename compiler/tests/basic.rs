@@ -1,7 +1,7 @@
 //! Basic expressions and function calls.
 
+use minigc_compiler::codegen::CodegeGeneratorContext;
 use minigc_compiler::compile_expr;
-use minigc_compiler::execution::CodegeGeneratorContext;
 
 #[test]
 fn simple_test() {

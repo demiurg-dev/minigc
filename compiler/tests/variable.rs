@@ -1,7 +1,7 @@
 //! Let-expressions and variable usage.
 
+use minigc_compiler::codegen::CodegeGeneratorContext;
 use minigc_compiler::compile_expr;
-use minigc_compiler::execution::CodegeGeneratorContext;
 
 #[test]
 fn let_variable_usage() {
