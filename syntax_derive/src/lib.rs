@@ -6,7 +6,8 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, quote};
 use syn::parse::Nothing;
 use syn::{
-    BinOp, Block, Error, Expr, ExprPath, FnArg, Ident, Item, ItemMod, Lit, Pat, Stmt, Type, UnOp, parse_macro_input,
+    BinOp, Block, Error, Expr, ExprPath, FnArg, Ident, Item, ItemMod, Lit, Member, Pat, Stmt, Type, UnOp,
+    parse_macro_input,
 };
 
 #[proc_macro_attribute]
@@ -257,6 +258,56 @@ fn parse_expr(expr: &Expr, this: &TokenStream2) -> TokenStream2 {
                     expr: ::std::boxed::Box::new(#expr),
                 }
             }
+        }
+        Expr::Field(field) => {
+            assert_parse!(field.attrs.is_empty(), field.attrs.first(), "attributes not supported");
+            let base_name = match &*field.base {
+                Expr::Path(path) => parse_path_to_ident(path).to_string(),
+                _ => return error(field, "only variable supported here"),
+            };
+
+            match &field.member {
+                Member::Named(name) => {
+                    let name = name.to_string();
+                    quote! {
+                        #this::syntax::Expr::StructField { base: #base_name.to_string(), name: #name.to_string() }
+                    }
+                }
+                Member::Unnamed(_idx) => quote! {
+                    todo!()
+                },
+            }
+        }
+        Expr::Struct(strct) => {
+            assert_parse!(strct.attrs.is_empty(), strct.attrs.first(), "attributes not supported");
+            assert_parse!(strct.qself.is_none(), strct, "self not supported");
+            assert_parse!(strct.rest.is_none(), strct.rest.as_ref().unwrap(), "rest not supported");
+            let name = strct.path.get_ident().unwrap().to_string();
+            let fields = strct
+                .fields
+                .iter()
+                .map(|fld| {
+                    assert_parse!(fld.attrs.is_empty(), fld.attrs.first(), "attributes not supported");
+                    let member = match &fld.member {
+                        Member::Named(name) => name.to_token_stream(),
+                        Member::Unnamed(_) => error(&fld.member, "expected named member"),
+                    };
+                    let member = member.to_string();
+                    let expr = parse_expr(&fld.expr, this);
+                    quote! {
+                        (#member.to_string(), #expr)
+                    }
+                })
+                .collect_vec();
+            quote! {
+                #this::syntax::Expr::Struct {
+                    name: #name.to_string(),
+                    exprs: ::std::vec![#(#fields),*].into_boxed_slice(),
+                }
+            }
+        }
+        Expr::Tuple(_tuple) => {
+            todo!()
         }
         Expr::If(ite) => {
             let cond = parse_expr(&ite.cond, this);
