@@ -1,11 +1,15 @@
 use std::collections::BTreeMap;
 
-use crate::syntax::{CheckError, Ctx, Fnc, IntSize, Type};
+use hashbrown::HashMap;
+
+use crate::syntax::{CheckError, Ctx, Fnc, IntSize, StructField, StructType, Type};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
     Const(i64),
     Var(String),
+    StructField { base: String, name: String },
+    Struct { name: String, exprs: Box<[(String, Expr)]> },
     BinOp { op: BinOp, left: Box<Expr>, right: Box<Expr> },
     UnOp { op: UnOp, expr: Box<Expr> },
     Ite { cond: Box<Expr>, then_branch: Box<Expr>, else_branch: Option<Box<Expr>> },
@@ -45,6 +49,7 @@ impl Expr {
         &'a self,
         ctx: &Ctx<'a>,
         fncs: &BTreeMap<String, Fnc>,
+        structs: &BTreeMap<String, StructType>,
         ty: &Type,
     ) -> Result<(), CheckError> {
         match self {
@@ -59,37 +64,87 @@ impl Expr {
                     }
                 }
             },
+            Self::StructField { base, name } => match ctx.get(base) {
+                Some((s_ty, _)) => match s_ty {
+                    Type::Name(s_name) => {
+                        let strct = structs.get(s_name).unwrap();
+                        match strct.fields.iter().find(|f| &f.name == name) {
+                            Some(fld) => {
+                                if *ty == fld.ty {
+                                    Ok(())
+                                } else {
+                                    expected_type!(ty, fld.ty, self)
+                                }
+                            }
+                            None => Err(CheckError::InvalidField { st: name.to_string(), name: s_name.to_string() }),
+                        }
+                    }
+                    _ => Err(CheckError::ExpectedStructType { actual: (*s_ty).clone(), expr: self.clone() }),
+                },
+                None => Err(CheckError::UnknownVariable(base.to_string())),
+            },
+            Self::Struct { name, exprs } => {
+                match ty {
+                    Type::Name(s_name) if name == s_name => {
+                        let strct = structs.get(s_name).unwrap();
+                        // TODO: We could have duplicate fields, so need to handle that as well
+                        let mut available_fields: HashMap<&String, &Expr> =
+                            HashMap::from_iter(exprs.iter().map(|(n, e)| (n, e)));
+                        for StructField { name, ty } in &strct.fields {
+                            match available_fields.remove(name) {
+                                Some(e) => e.check(ctx, fncs, structs, ty)?,
+                                None => {
+                                    return Err(CheckError::MissingField {
+                                        st: s_name.to_string(),
+                                        name: name.to_string(),
+                                    });
+                                }
+                            }
+                        }
+                        match available_fields.iter().next() {
+                            Some((name, _expr)) => {
+                                Err(CheckError::InvalidField { st: s_name.to_string(), name: name.to_string() })
+                            }
+                            None => Ok(()),
+                        }
+                    }
+                    Type::Name(_) => {
+                        expected_type!(*ty, &Type::Name(name.to_string()), self)
+                    }
+                    _ => Err(CheckError::ExpectedStructType { actual: (*ty).clone(), expr: self.clone() }),
+                }
+            }
             Self::BinOp { op, left, right } => match op {
                 BinOp::Add | BinOp::Sub | BinOp::Mul => {
                     self.ensure_integer_type(ty)?;
-                    left.check(ctx, fncs, ty)?;
-                    right.check(ctx, fncs, ty)
+                    left.check(ctx, fncs, structs, ty)?;
+                    right.check(ctx, fncs, structs, ty)
                 }
                 BinOp::Leq => {
                     if !matches!(ty, Type::Bool) {
                         return expected_type!(ty, Type::Bool, self);
                     }
                     // TODO: We cannot check proper type here (need a bit of relaxation)
-                    left.check(ctx, fncs, &Type::Int { size: IntSize::I64, signed: true })?;
-                    right.check(ctx, fncs, &Type::Int { size: IntSize::I64, signed: true })
+                    left.check(ctx, fncs, structs, &Type::Int { size: IntSize::I64, signed: true })?;
+                    right.check(ctx, fncs, structs, &Type::Int { size: IntSize::I64, signed: true })
                 }
             },
             Self::UnOp { op, expr } => match op {
                 UnOp::Neg => {
                     self.ensure_integer_type(ty)?;
-                    expr.check(ctx, fncs, ty)
+                    expr.check(ctx, fncs, structs, ty)
                 }
             },
             Self::Ite { cond, then_branch, else_branch } => {
-                cond.check(ctx, fncs, &Type::Bool)?;
+                cond.check(ctx, fncs, structs, &Type::Bool)?;
                 let ty = match else_branch {
                     Some(else_branch) => {
-                        else_branch.check(ctx, fncs, ty)?;
+                        else_branch.check(ctx, fncs, structs, ty)?;
                         ty
                     }
                     None => &Type::Unit,
                 };
-                then_branch.check(ctx, fncs, ty)
+                then_branch.check(ctx, fncs, structs, ty)
             }
             Self::Let { .. } => Err(CheckError::StandaloneLet { expr: self.clone() }),
             Self::Assign { name, expr } => {
@@ -99,7 +154,7 @@ impl Expr {
                 match ctx.get(name) {
                     Some((ty, is_mut)) => {
                         if *is_mut {
-                            expr.check(ctx, fncs, ty)
+                            expr.check(ctx, fncs, structs, ty)
                         } else {
                             Err(CheckError::AssignmentToImmutable(name.to_string()))
                         }
@@ -122,7 +177,7 @@ impl Expr {
                     return expected_type!(ty, &fnc.ty.ret, self);
                 }
                 for (param, expr) in fnc.ty.params.iter().zip(args) {
-                    expr.check(ctx, fncs, &param.ty)?;
+                    expr.check(ctx, fncs, structs, &param.ty)?;
                 }
                 Ok(())
             }
@@ -130,8 +185,8 @@ impl Expr {
                 if !matches!(ty, Type::Unit) {
                     return expected_type!(ty, Type::Unit, self);
                 }
-                cond.check(ctx, fncs, &Type::Bool)?;
-                body.check(ctx, fncs, ty)
+                cond.check(ctx, fncs, structs, &Type::Bool)?;
+                body.check(ctx, fncs, structs, ty)
             }
             Self::Block(stmts) => {
                 let mut ctx: Ctx<'a> = ctx.clone();
@@ -146,12 +201,12 @@ impl Expr {
                 for (i, stmt) in stmts.iter().enumerate() {
                     match stmt {
                         Expr::Let { name, ty, is_mut, rhs } if i < last_id => {
-                            rhs.check(&ctx, fncs, ty)?;
+                            rhs.check(&ctx, fncs, structs, ty)?;
                             ctx.insert(name, (ty, *is_mut));
                         }
-                        _ if i < last_id => stmt.check(&ctx, fncs, &Type::Unit)?,
+                        _ if i < last_id => stmt.check(&ctx, fncs, structs, &Type::Unit)?,
                         _ => {
-                            stmt.check(&ctx, fncs, ty)?;
+                            stmt.check(&ctx, fncs, structs, ty)?;
                         }
                     }
                 }

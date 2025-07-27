@@ -19,7 +19,8 @@ impl Top {
             for param in fnc.ty.params.iter() {
                 ctx.insert(&param.name, (&param.ty, false));
             }
-            fnc.body.check(&ctx, &self.fncs, &fnc.ty.ret)?;
+            fnc.body
+                .check(&ctx, &self.fncs, &self.structs, &fnc.ty.ret)?;
         }
 
         Ok(())
@@ -30,6 +31,12 @@ impl Top {
 pub enum CheckError {
     #[error("expected integer type, found {actual:?} in expression {expr:?}")]
     ExpectedIntegerType { actual: Type, expr: Expr },
+    #[error("expected struct type, found {actual:?} in expression {expr:?}")]
+    ExpectedStructType { actual: Type, expr: Expr },
+    #[error("struct '{st}' does not have field '{name}'")]
+    InvalidField { st: String, name: String },
+    #[error("struct '{st}' missing field '{name}'")]
+    MissingField { st: String, name: String },
     #[error("expected type {expected:?}, found {actual:?} in expression {expr:?}")]
     TypeMismatch { actual: Type, expected: Type, expr: Expr },
     #[error("standalone let expression")]

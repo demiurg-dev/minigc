@@ -1,9 +1,10 @@
+use hashbrown::HashMap;
 use inkwell::IntPredicate;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{BasicTypeEnum, FunctionType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::types::{BasicType, BasicTypeEnum, FunctionType};
+use inkwell::values::{AggregateValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
 use itertools::Itertools;
 
 use crate::names::{Name, Names};
@@ -100,10 +101,7 @@ impl<'a, 'm> Generator<'a, 'm> {
             Type::Unit => self.context.void_type().fn_type(&param_types, false),
             _ => {
                 let generic = self.generate_value_type(&ty.ret);
-                match generic {
-                    BasicTypeEnum::IntType(it) => it.fn_type(&param_types, false),
-                    _ => unimplemented!(),
-                }
+                generic.fn_type(&param_types, false)
             }
         }
     }
@@ -148,9 +146,11 @@ impl<'a, 'm> Generator<'a, 'm> {
 
     fn generate_structs(&self) {
         for (name, sd) in &self.top.structs {
-            let fields = sd.fields.iter().map(|f| {
-                self.generate_value_type(&f.ty)
-            }).collect_vec();
+            let fields = sd
+                .fields
+                .iter()
+                .map(|f| self.generate_value_type(&f.ty))
+                .collect_vec();
             let st = self.context.opaque_struct_type(name);
             st.set_body(&fields, false);
         }
@@ -177,6 +177,58 @@ impl<'a, 'm> Generator<'a, 'm> {
                         .unwrap(),
                     None => val,
                 })
+            }
+            Expr::Struct { name: s_name, exprs } => {
+                // TODO: What is struct has no fields (this should be equivalent to unit type)
+                assert!(!exprs.is_empty());
+                let fields: HashMap<_, _> = self
+                    .top
+                    .structs
+                    .get(s_name)
+                    .unwrap()
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, fld)| (&fld.name, i as u32))
+                    .collect();
+                let strct = self.context.get_struct_type(s_name).unwrap();
+                let mut val = strct.get_poison().as_aggregate_value_enum();
+                let last_idx = exprs.len() - 1;
+                for (i, (f_name, expr)) in exprs.iter().enumerate() {
+                    let idx = fields.get(f_name).unwrap();
+                    let e_name = format!("{s_name}.{f_name}");
+                    let expr = self.generate_expr(expr, Some(&e_name), ctx, names).unwrap();
+                    let name = if i == last_idx { name.unwrap_or_default() } else { "" };
+                    val = self
+                        .builder
+                        .build_insert_value(val, expr, *idx, name)
+                        .unwrap();
+                }
+                Some(val.as_basic_value_enum())
+                /*let mut field_exprs: HashMap<_, _> = HashMap::from_iter(exprs.iter().map(|(name, expr)| (name, expr)));
+                let fields = self.top.structs.get(name).unwrap().fields.iter().map(|fld| {
+                    let expr = field_exprs.remove(&fld.name).unwrap();
+                    let name = format!("{name}.{}", &fld.name);
+                    self.generate_expr(expr, Some(&name), ctx, names).unwrap()
+                }).collect_vec();
+                assert!(field_exprs.is_empty());
+                Some(self.context.get_struct_type(name).unwrap().const_named_struct(&fields).as_basic_value_enum())*/
+            }
+            Expr::StructField { base, name: f_name } => {
+                let (val, _is_mut) = *ctx.get(base.as_str()).unwrap();
+                let strct = val.into_struct_value();
+                let idx = self
+                    .top
+                    .structs
+                    .get(strct.get_type().get_name().unwrap().to_str().unwrap())
+                    .unwrap()
+                    .fields
+                    .iter()
+                    .find_position(|fld| &fld.name == f_name)
+                    .unwrap()
+                    .0 as u32;
+                let name = name.unwrap_or(f_name);
+                Some(self.builder.build_extract_value(strct, idx, name).unwrap())
             }
             Expr::BinOp { op, left, right } => match op {
                 BinOp::Add => {

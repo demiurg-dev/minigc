@@ -32,6 +32,10 @@ impl<'a> Runtime<'a> {
     pub fn get_fn3<T1, T2, T3, R>(&self, name: &str) -> extern "C" fn(T1, T2, T3) -> R {
         unsafe { std::mem::transmute(self.engine.get_function_address(name).unwrap()) }
     }
+
+    pub fn get_fn4<T1, T2, T3, T4, R>(&self, name: &str) -> extern "C" fn(T1, T2, T3, T4) -> R {
+        unsafe { std::mem::transmute(self.engine.get_function_address(name).unwrap()) }
+    }
 }
 
 impl<'a> std::fmt::Debug for Runtime<'a> {
