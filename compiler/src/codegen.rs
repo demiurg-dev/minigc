@@ -205,14 +205,6 @@ impl<'a, 'm> Generator<'a, 'm> {
                         .unwrap();
                 }
                 Some(val.as_basic_value_enum())
-                /*let mut field_exprs: HashMap<_, _> = HashMap::from_iter(exprs.iter().map(|(name, expr)| (name, expr)));
-                let fields = self.top.structs.get(name).unwrap().fields.iter().map(|fld| {
-                    let expr = field_exprs.remove(&fld.name).unwrap();
-                    let name = format!("{name}.{}", &fld.name);
-                    self.generate_expr(expr, Some(&name), ctx, names).unwrap()
-                }).collect_vec();
-                assert!(field_exprs.is_empty());
-                Some(self.context.get_struct_type(name).unwrap().const_named_struct(&fields).as_basic_value_enum())*/
             }
             Expr::StructField { base, name: f_name } => {
                 let (val, _is_mut) = *ctx.get(base.as_str()).unwrap();
