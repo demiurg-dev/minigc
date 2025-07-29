@@ -50,7 +50,7 @@ impl<'a> GeneratedModule<'a> {
         let mut generator = Generator::new(context, &module, builder, top);
         generator.generate_top();
 
-        eprintln!("{}", module.print_to_string().to_string_lossy());
+        module.print_to_stderr();
         if let Err(err) = module.verify() {
             panic!("Verify error: {err}");
         }
