@@ -50,7 +50,8 @@ impl<'a> GeneratedModule<'a> {
         let mut generator = Generator::new(context, &module, builder, top);
         generator.generate_top();
 
-        module.print_to_stderr();
+        let mod_str = module.print_to_string();
+        eprintln!("{}", mod_str.to_str().unwrap());
         if let Err(err) = module.verify() {
             panic!("Verify error: {err}");
         }
@@ -59,7 +60,7 @@ impl<'a> GeneratedModule<'a> {
     }
 
     pub fn init_runtime(self) -> Runtime<'a> {
-        Runtime::new(self.module)
+        Runtime::new(self.module, inkwell::OptimizationLevel::Default)
     }
 }
 

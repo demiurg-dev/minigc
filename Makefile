@@ -4,7 +4,10 @@ clippy:
 	cargo clippy --no-deps --all-features --all-targets -- -D warnings
 
 test:
-	cargo test --all-features --all-targets
+	cargo test --all-features --all-targets -j 1 -- --nocapture
+
+test_parallel:
+	cargo test --all-features --all-targets -- --nocapture
 
 fmt_check:
 	cargo +nightly fmt -- --check
