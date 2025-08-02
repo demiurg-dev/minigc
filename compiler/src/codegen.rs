@@ -1,10 +1,10 @@
 use hashbrown::HashMap;
-use inkwell::IntPredicate;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{BasicType, BasicTypeEnum, FunctionType};
 use inkwell::values::{AggregateValue, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::{AddressSpace, IntPredicate};
 use itertools::Itertools;
 
 use crate::names::{Name, Names};
@@ -12,6 +12,12 @@ use crate::runtime::Runtime;
 use crate::syntax::{BinOp, Expr, FncType, IntSize, Top, Type, UnOp};
 
 type NameCtx<'a> = im::HashMap<Name, (BasicValueEnum<'a>, Option<BasicTypeEnum<'a>>)>;
+
+pub const MINIGC_MEMORY: &str = "__mingc_memory";
+pub(crate) const MINIGC_ALLOC_INTERNAL: &str = "__minigc_alloc_internal";
+pub const MINIGC_ALLOC: &str = "__minigc_alloc";
+pub(crate) const MINIGC_MEMSIZE_INTERNAL: &str = "__minigc_memory_size_internal";
+pub(crate) const MINIGC_MEMSIZE: &str = "__minigc_memory_size";
 
 pub struct CodegeGeneratorContext {
     context: Context,
@@ -79,6 +85,7 @@ impl<'a, 'm> Generator<'a, 'm> {
     }
 
     fn generate_top(&mut self) {
+        self.generate_runtime();
         self.generate_structs();
         self.generate_fnc_defs();
         self.generate_fncs();
@@ -427,5 +434,50 @@ impl<'a, 'm> Generator<'a, 'm> {
             }
             Expr::Unit => todo!(),
         }
+    }
+
+    fn generate_runtime(&self) {
+        // Global memory reference
+        let addr_space = AddressSpace::default();
+        let ptr = self.context.ptr_type(addr_space);
+        let memory = self.module.add_global(ptr, None, MINIGC_MEMORY);
+
+        // Allocation function
+        let alloc_ty = ptr.fn_type(&[self.context.i64_type().into()], false);
+        let alloc_ty_internal = ptr.fn_type(&[ptr.into(), self.context.i64_type().into()], false);
+        let alloc_internal_fn = self
+            .module
+            .add_function(MINIGC_ALLOC_INTERNAL, alloc_ty_internal, None);
+        let alloc_fn = self.module.add_function(MINIGC_ALLOC, alloc_ty, None);
+        let entry = self.context.append_basic_block(alloc_fn, "entry");
+        self.builder.position_at_end(entry);
+        let ret = self
+            .builder
+            .build_call(
+                alloc_internal_fn,
+                &[memory.as_pointer_value().into(), alloc_fn.get_nth_param(0).unwrap().into()],
+                "ret",
+            )
+            .unwrap();
+        self.builder
+            .build_return(Some(&ret.try_as_basic_value().unwrap_left()))
+            .unwrap();
+
+        // Memory size function
+        let size_ty = self.context.i64_type().fn_type(&[], false);
+        let size_internal_ty = self.context.i64_type().fn_type(&[ptr.into()], false);
+        let size_internal_fn = self
+            .module
+            .add_function(MINIGC_MEMSIZE_INTERNAL, size_internal_ty, None);
+        let size_fn = self.module.add_function(MINIGC_MEMSIZE, size_ty, None);
+        let entry = self.context.append_basic_block(size_fn, "entry");
+        self.builder.position_at_end(entry);
+        let ret = self
+            .builder
+            .build_call(size_internal_fn, &[memory.as_pointer_value().into()], "ret")
+            .unwrap();
+        self.builder
+            .build_return(Some(&ret.try_as_basic_value().unwrap_left()))
+            .unwrap();
     }
 }
