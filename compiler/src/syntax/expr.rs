@@ -163,6 +163,11 @@ impl Expr {
                 }
             }
             Self::Call { name, args } => {
+                // Note: ugly hack to avoid typechecking internals
+                if name.starts_with("__") {
+                    return Ok(());
+                }
+
                 let fnc = fncs
                     .get(name)
                     .ok_or_else(|| CheckError::UnknownFunction(name.clone()))?;

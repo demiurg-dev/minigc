@@ -1,75 +1,65 @@
-use std::{alloc::{self, Layout}, ops::Not};
+use std::alloc::{self, Layout};
 
+const ALIGN: u64 = std::mem::align_of::<u64>() as u64;
+
+#[repr(align(8))]
 pub(super) struct Memory {
     layout: Layout,
-    size: usize,
-    heaps: [*mut u8; 2],
-    active_heap: HeapIndex,
+    heap: *mut u8,
     allocated: usize,
 }
 
 impl Memory {
     pub fn new(size: usize) -> Self {
-        let layout = Layout::from_size_align(size, std::mem::size_of::<usize>()).unwrap();
-        let heaps = unsafe {
-            let heap1 = alloc::alloc(layout);
-            if heap1.is_null() {
-                panic!("Could not allocate heap #1");
-            }
-            let heap2 = alloc::alloc(layout);
-            if heap2.is_null() {
-                alloc::dealloc(heap1, layout);
-                panic!("Could not allocate heap #2")
-            }
-            [heap1, heap2]
-        };
-        Self {
-            layout, size, heaps, active_heap: HeapIndex::First, allocated: 0
-        }
+        let layout = Layout::from_size_align(size, ALIGN as usize).unwrap();
+        let heap = unsafe { alloc::alloc(layout) };
+        let allocated = 0;
+        Self { layout, heap, allocated }
     }
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn minigc_alloc(memory: *mut Memory, size: u64) -> *const u8 {
+#[inline(always)]
+fn align_size(size: u64) -> u64 {
+    size.div_ceil(ALIGN) * ALIGN
+}
+
+pub(super) extern "C" fn managed_alloc(memory: *mut Memory, size: u64) -> *const u8 {
+    let size = align_size(size);
     unsafe {
         let memory = &mut *memory;
         let allocated = memory.allocated;
         let new_allocated = allocated + (size as usize);
-        if new_allocated < memory.size {
-            // TODO: Alignment
-            (&mut *memory).allocated = new_allocated;
-            let active_heap = memory.heaps[memory.active_heap as usize];
-            active_heap.add(allocated)
+        if new_allocated < memory.layout.size() {
+            memory.allocated = new_allocated;
+            memory.heap.add(allocated)
         } else {
             unimplemented!("GC")
         }
     }
 }
 
+pub(super) extern "C" fn managed_size(memory: *const Memory) -> u64 {
+    unsafe { (&*memory).allocated as u64 }
+}
+
 impl Drop for Memory {
     fn drop(&mut self) {
         unsafe {
-            alloc::dealloc(self.heaps[0], self.layout);
-            alloc::dealloc(self.heaps[1], self.layout);
+            alloc::dealloc(self.heap, self.layout);
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(usize)]
-enum HeapIndex {
-    First = 0,
-    Second = 1,
-}
+#[cfg(test)]
+mod tests {
+    use crate::runtime::memory::{ALIGN, align_size};
 
-impl Not for HeapIndex {
-    type Output = Self;
-
-    #[inline(always)]
-    fn not(self) -> Self::Output {
-        match self {
-            Self::First => Self::Second,
-            Self::Second => Self::First,
+    #[test]
+    fn check_aligned_size() {
+        for size in 1..1024_u64 {
+            let aligned = align_size(size);
+            assert!(aligned % ALIGN == 0);
+            assert!(aligned.checked_sub(size).unwrap() < ALIGN);
         }
     }
 }
