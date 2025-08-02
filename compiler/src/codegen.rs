@@ -472,8 +472,6 @@ impl<'a, 'm> Generator<'a, 'm> {
         let size_fn = self.module.add_function(MINIGC_MEMSIZE, size_ty, None);
         let entry = self.context.append_basic_block(size_fn, "entry");
         self.builder.position_at_end(entry);
-        // let memory_ptr = self.builder.build_load(ptr, memory.as_pointer_value(),
-        // "memory").unwrap();
         let ret = self
             .builder
             .build_call(size_internal_fn, &[memory.as_pointer_value().into()], "ret")
